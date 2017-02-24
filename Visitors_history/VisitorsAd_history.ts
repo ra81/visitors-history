@@ -11,15 +11,6 @@ let companyId = getCompanyId();
 let currentGameDate = parseGameDate(document, document.location.pathname);
 let dataVersion = 2;    // версия сохраняемых данных. При изменении формата менять и версию
 
-// старый упрощенный интерфейс
-//interface IVisitorsInfo {
-//    date: Date;
-//    visitors: number;
-//    celebrity: number;
-//    budget: number;
-//    population: number;
-//}
-
 // новый расширенный
 interface IVisitorsInfoEx {
     date: Date;
