@@ -582,7 +582,17 @@ function showHistory(info: IDictionary<IVisitorsInfoEx>, container: JQuery) {
                 "type": "smoothedLine",
                 "valueAxis": "y-turnover",
                 "valueField": "income"
-            }
+            },
+            {
+                "id": "ch-service",
+                "hidden": false,
+                "lineColor": "black",
+                "lineThickness": 3,
+                "title": "сервис",
+                "type": "step",
+                "valueAxis": "y-service",
+                "valueField": "service"
+            },
         ],
         "valueAxes": [
             {
@@ -592,6 +602,14 @@ function showHistory(info: IDictionary<IVisitorsInfoEx>, container: JQuery) {
                 "axisThickness": 2,
                 "color": "#0000FF",
                 "offset": 50,
+            },
+            {
+                "id": "y-service",
+                "position": "right",
+                "axisColor": "black",
+                "axisThickness": 2,
+                "color": "black",
+                "offset": 100,
             },
             {
                 "id": "y-visitors",
