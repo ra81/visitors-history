@@ -2195,6 +2195,7 @@ $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
 let realm = getRealmOrError();
 let companyId = getCompanyId();
+let currentGameDate = parseGameDate(document, document.location.pathname);
 let dataVersion = 2; // версия сохраняемых данных. При изменении формата менять и версию
 /**
  * Укорачивает имена ключей для удобного сохранения. дабы не засерало кучу места.
@@ -2262,12 +2263,29 @@ function unitList() {
     let $parseBtn = $("<input type='button' id='vh_parseVisitors' value='Parse Visitors'>");
     let $logVisitors = $("<span id='logVisitors'></span>");
     let $logAd = $("<span id='logAd'></span>");
+    // парсить данные если сегодня еще не парсили, тогда блинкать кнопку дабы не забыть
+    let lastDate = localStorage[buildStoreKey(realm, "vh")];
+    let today = dateToShort(currentGameDate);
+    if (lastDate !== today) {
+        setInterval(() => {
+            if ($parseBtn.hasClass("blink")) {
+                $parseBtn.css("background", "");
+                $parseBtn.removeClass("blink");
+            }
+            else {
+                $parseBtn.css("background", "red");
+                $parseBtn.addClass("blink");
+            }
+        }, 1000);
+    }
     $parseBtn.on("click", (event) => __awaiter(this, void 0, void 0, function* () {
         $parseBtn.prop("disabled", true);
         try {
             let parsedInfo = yield parseVisitors_async();
             log("parsedInfo", parsedInfo);
             saveInfo(parsedInfo);
+            // запишем так же флаг что сегодня уж парсили. а то кнопка блинкать будет
+            localStorage[buildStoreKey(realm, "vh")] = today;
         }
         catch (err) {
             log("ошибка сбора и сохранения информации", err);
@@ -2369,8 +2387,6 @@ function unitList() {
     function parseVisitors_async() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                // вытащим текущую дату, потому как сохранять данные будем используя ее
-                let currentGameDate = parseGameDate(document, document.location.pathname);
                 // парсим список магов со страницы юнитов
                 let p1 = yield getShops_async();
                 let subids = p1;
@@ -2663,7 +2679,7 @@ function showHistory(info, container) {
                 "id": "ch-service",
                 "hidden": false,
                 "lineColor": "black",
-                "lineThickness": 3,
+                "lineThickness": 2,
                 "title": "сервис",
                 "type": "step",
                 "valueAxis": "y-service",
