@@ -337,6 +337,9 @@ function unitList() {
                 storedInfo = JSON.parse(localStorage[storeKey]);
 
             // обновим данные и сохраним назад
+            if (storedInfo[1][dateKey])
+                log(`${subid}:${dateKey} существует. заменяем на`, compactInfo);
+
             storedInfo[1][dateKey] = compactInfo;
             localStorage[storeKey] = JSON.stringify(storedInfo);
         }
@@ -349,8 +352,8 @@ function unitList() {
             // собираем странички
             let urlMain = `/${realm}/main/unit/view/${subid}`;
             let urlAdv = `/${realm}/main/unit/view/${subid}/virtasement`;
-            let htmlMain = await tryGet_async(urlMain);
-            let htmlAdv = await tryGet_async(urlAdv);
+            let [htmlMain, htmlAdv] = await Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
+            //let htmlAdv = await tryGet_async(urlAdv);
 
             // парсим данные
             let adv = parseAds(htmlAdv, urlAdv);
