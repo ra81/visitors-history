@@ -126,14 +126,12 @@ function Start() {
 function unitList() {
 
     let $header = $("div.metro_header");
-
     let $vh = $("<div id='visitorsHistory'></div>");
-    let $parseBtn = $("<input type='button' id='vh_parseVisitors' value='Parse Visitors'>");
-    let $logVisitors = $("<span id='logVisitors'></span>");
-    let $logAd = $("<span id='logAd'></span>");
 
+    // парсинг данных
+    let $parseBtn = $("<input type='button' id='vh_parseVisitors' value='Parse Visitors'>");
     
-    // парсить данные если сегодня еще не парсили, тогда блинкать кнопку дабы не забыть
+    // если сегодня еще не парсили, тогда блинкать кнопку дабы не забыть
     let lastDate = localStorage[buildStoreKey(realm, "vh")];
     let today = dateToShort(currentGameDate);
     if (lastDate !== today) {
@@ -152,21 +150,34 @@ function unitList() {
     $parseBtn.on("click", async (event) => {
         $parseBtn.prop("disabled", true);
         try {
+            // формируем таблицу лога. внутри парсеров будут вызываться нотификаторы меняющие данные в таблице
+            $(".logger").remove();
+            $vh.append(buildTable());
+
             let parsedInfo = await parseVisitors_async();
+
             log("parsedInfo", parsedInfo);
+            $("#lgCurrent").hide();
+            $("#lgAllDone").show();
+
             saveInfo(parsedInfo);
             // запишем так же флаг что сегодня уж парсили. а то кнопка блинкать будет
             localStorage[buildStoreKey(realm, "vh")] = today;
+
+            $("#xDone").show();
         }
         catch (err) {
             log("ошибка сбора и сохранения информации", err);
+            $("#xFail").show();
+            let e = err as Error;
+            $("#lgProblem").append(e.message + " => " + e.stack);
             throw err;
         }
         finally {
             $parseBtn.prop("disabled", false);
         }
     });
-    $vh.append($parseBtn).append($logVisitors).append($logAd);
+    $vh.append($parseBtn);
     
 
     // зачистить старую историю
@@ -292,13 +303,17 @@ function unitList() {
             if (subids.length !== Object.keys(finance).length)
                 throw new Error("Число юнитов с главной, не совпало с числом юнитов взятых с отчета по подразделениям. косяк.");
 
+            notifyTotal(subids.length);
+
             // теперь для каждого мага надо собрать информацию по посетосам и бюджету
             // для полученного списка парсим инфу по посетителям, известности, рекламному бюджету
             // !!!!!! использовать forEach оказалось опасно. Так как там метод, он быстро выполнялся БЕЗ ожидания
             // завершения промисов и я получал данные когда то в будущем. Через циклы работает
             let parsedInfo: IDictionaryN<IVisitorsInfoEx> = {};
+            let done = 0;
             for (let subid of subids) {
                 // собираем данные по юниту и дополняем недостающим
+                notifyCurrent(subid);
                 let info = await getUnitInfo_async(subid);
                 info.date = currentGameDate;
                 info.income = finance[subid].income;    // если вдруг данных не будет все равно вывалит ошибку
@@ -307,6 +322,8 @@ function unitList() {
                     throw new Error("юнита еще не должно быть в списке спарсеных " + subid);
 
                 parsedInfo[subid] = info;
+                done++;
+                notifyDone(subid, done);
             }
             
             return parsedInfo;
@@ -436,45 +453,36 @@ function unitList() {
 
     // шляпа что рисуется сверху и показывает результаты
     function buildTable() {
-        return `<div id='rmTabletitle' class='rmProperty' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>RM Maintenance Log</div>
-            <table id='rmTable' class='rmProperty' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
-                <tr id='rmSplit'></tr>
+        return `
+        <div class='logger' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>Process Log</div>
+            <table id='lgTable' class='logger' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
                 <tr>
-                    <td>New suppliers: </td>
-                    <td id='rmSuppliers'>0</td>
+                    <td>Shops: </td>
+                    <td id='lgDone'>0</td>
+                    <td>of</td>
+                    <td id='lgTotal'>0</td>
+                    <td id='lgAllDone' style='display: none; color: lightgoldenrodyellow'>Done!</td>
+                    <td id='lgCurrent' style='color: lightgoldenrodyellow'></td>
                 </tr>
                 <tr>
-                    <td>Get calls: </td>
-                    <td id='rmGetCalls'>0</td>
-                </tr>
-                <tr>
-                    <td>Post calls: </td>
-                    <td id='rmPostCalls'>0</td>
-                </tr>
-                <tr>
-                    <td>Total server calls: </td>
-                    <td id='rmServerCalls'>0</td>
-                </tr>
-                <tr>
-                    <td>Time: </td>
-                    <td id=rmMinutes>0</td>
-                    <td>min</td>
-                    <td id='rmSeconds'>0</td>
-                    <td>sec</td>
-                </tr>
-                <tr>
-                    <td id='xDone' colspan=4 style='visibility: hidden; color: lightgoldenrodyellow'>All Done!</td>
-                    <td id='xFail' colspan=4 style='visibility: hidden; color: lightgoldenrodyellow'>Failed!</td>
+                    <td id='xDone' colspan=6 style='display: none; color: lightgoldenrodyellow'>All Done!</td>
+                    <td id='xFail' colspan=6 style='display: none; color: lightgoldenrodyellow'>Failed!</td>
                 </tr>
             </table>
-        <div id='rmProblem' class='rmProperty style='font-size: 18px; color:gold;'></div>`;
+            <div id='lgProblem' class='logger' style='color:red;'></div>
+        </div>`;
     }
 
-    function progress(msg: string) {
-        //serverGets++;
-        //$("#rmGetCalls").text(serverGets);
-        //$("#rmServerCalls").text(serverGets + serverPosts);
-        //log(msg);
+    function notifyTotal(shopCount: number) {
+        $("#lgTotal").text(shopCount);
+    }
+
+    function notifyCurrent(subid: number) {
+        $("#lgCurrent").text(subid);
+    }
+
+    function notifyDone(subid: number, count: number) {
+        $("#lgDone").text(count);
     }
 }
 
