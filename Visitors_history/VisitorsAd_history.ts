@@ -281,7 +281,7 @@ function unitList() {
     async function parseVisitors_async() {
         try {
             // парсим список магов со страницы юнитов
-            let p1 = await getShops_async();
+            let p1 = await getShopsFuels_async();
             let subids = p1 as number[];
             log("shops", subids);
 
@@ -385,8 +385,8 @@ function unitList() {
         }
     }
 
-    // получает список subid для всех наших магазинов
-    async function getShops_async(): Promise<number[]> {
+    // получает список subid для всех наших магазинов и заправок
+    async function getShopsFuels_async(): Promise<number[]> {
 
         // ставим фильтрацию на магазины, сбрасываем пагинацию.
         // парсим юниты, 
@@ -395,22 +395,33 @@ function unitList() {
             // ставим фильтр в магазины и сбросим пагинацию
             await tryGet_async(`/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
             await tryGet_async(`/${realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
+            let htmlShops = await tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
 
-            // забрали страничку с юнитами
-            let html = await tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
+            // загрузим заправки
+            await tryGet_async(`/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
+            let htmlFuels = await tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
 
             // вернем пагинацию, и вернем назад установки фильтрации
             await tryGet_async(`/${realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
             await tryGet_async($(".u-s").attr("href") || `/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
 
             // обработаем страничку и вернем результат
-            let shops = parseUnitList(html, document.location.pathname);
             let arr: number[] = [];
+
+            let shops = parseUnitList(htmlShops, document.location.pathname);
             for (let key in shops) {
                 if (shops[key].type !== UnitTypes.shop)
                     throw new Error("мы должны получить только магазины, а получили " + shops[key].type);
 
                 arr.push(shops[key].subid);
+            }
+
+            let fuels = parseUnitList(htmlFuels, document.location.pathname);
+            for (let key in fuels) {
+                if (fuels[key].type !== UnitTypes.fuel)
+                    throw new Error("мы должны получить только заправки, а получили " + fuels[key].type);
+
+                arr.push(fuels[key].subid);
             }
 
             return arr;
@@ -425,15 +436,19 @@ function unitList() {
     // забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
     async function getProfits_async(): Promise<IDictionaryN<IUnitFinance>> {
         try {
-            // сбросим пагинацию и заберем только отчет для магазинов. после чего вернем пагинацию
+            let urlShops = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
+            let urlFuels = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
+
+            // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
             await tryGet_async(`/${realm}/main/common/util/setpaging/reportcompany/units/20000`);
-            let reportUrl = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
-            let html = await tryGet_async(reportUrl);
+            let htmlShops = await tryGet_async(urlShops);
+            let htmlFuels = await tryGet_async(urlFuels);
             await tryGet_async(`/${realm}/main/common/util/setpaging/reportcompany/units/400`);
 
             // обработаем полученную страничку
-            let profits = parseFinanceRepByUnits(html, reportUrl);
-            return profits;
+            let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
+            let profitsFuels = parseFinanceRepByUnits(htmlFuels, urlFuels);
+            return mergeDictN(profitsShops, profitsFuels);
         }
         catch (err) {
             log("ошибка обработки отчета по подразделениям", err);
@@ -448,7 +463,7 @@ function unitList() {
         <div class='logger' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>Process Log</div>
             <table id='lgTable' class='logger' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
                 <tr>
-                    <td>Shops: </td>
+                    <td>Units: </td>
                     <td id='lgDone'>0</td>
                     <td>of</td>
                     <td id='lgTotal'>0</td>
@@ -478,8 +493,8 @@ function unitList() {
 }
 
 function unitMain() {
-    if (!isShop(document)) {
-        log("не магазин.");
+    if (!isShop(document) && !isFuel(document)) {
+        log("не магазин и не заправка.");
         return;
     }
 
