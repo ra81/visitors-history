@@ -10,6 +10,7 @@ let realm = getRealmOrError();
 let companyId = getCompanyId();
 let currentGameDate = parseGameDate(document, document.location.pathname);
 let dataVersion = 2;    // версия сохраняемых данных. При изменении формата менять и версию
+let MaxDays = 60;       // сколько точек данных сохранять. 52 значит виртогод
 
 // новый расширенный
 interface IVisitorsInfoEx {
@@ -349,6 +350,27 @@ function unitList() {
                 log(`${subid}:${dateKey} существует. заменяем на`, compactInfo);
 
             storedInfo[1][dateKey] = compactInfo;
+
+            // подчистим старые данные чтобы лог не захламлять
+            let dates = Object.keys(storedInfo[1]).map(v => dateFromShort(v));
+            dates.sort((a, b) => {
+                if (a > b)
+                    return 1;
+
+                if (a < b)
+                    return -1;
+
+                return 0;
+            });
+            for (let d of dates) {
+                if (Object.keys(storedInfo[1]).length <= MaxDays)
+                    break;
+
+                delete storedInfo[1][dateToShort(d)];
+                log(`удалена запись для ${subid} с датой ${d}`);
+            }
+
+
             localStorage[storeKey] = JSON.stringify(storedInfo);
         }
     }
