@@ -16,7 +16,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
 // @require        https://www.amcharts.com/lib/3/amcharts.js
 // @require        https://www.amcharts.com/lib/3/serial.js
-// @version        1.6
+// @version        1.8
 // ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
@@ -464,7 +464,7 @@ function dateFromShort(str) {
  */
 function sayNumber(num) {
     if (num < 0)
-        return "-" + sayMoney(-num);
+        return "-" + sayNumber(-num);
     if (Math.round(num * 100) / 100 - Math.round(num))
         num = Math.round(num * 100) / 100;
     else
@@ -1093,7 +1093,7 @@ function buildStoreKey(realm, code, subid) {
     return res;
 }
 /**
- * Возвращает все ключи юнитов для заданного реалма и КОДА.
+ * Возвращает все ключи ЮНИТОВ для заданного реалма и КОДА.
  * @param realm
  * @param storeKey код ключа sh, udd, vh итд
  */
@@ -2133,7 +2133,13 @@ function parseUnitMainNew(html, url) {
                 capacity = 1000000;
                 break;
             case 6:
-                capacity = 5000000;
+                capacity = 5 * 1000000;
+                break;
+            case 7:
+                capacity = 50 * 1000000;
+                break;
+            case 8:
+                capacity = 500 * 1000000;
                 break;
             default:
                 throw new Error("неизвестный размер склада " + size);
@@ -2200,7 +2206,7 @@ function parseUnitMainNew(html, url) {
             place: place,
             rent: rent,
             departments: depts,
-            employees: { employees: employees, required: employeesReq, efficiency: employeesEff },
+            employees: { employees: employees, required: employeesReq, efficiency: employeesEff, holidays: inHoliday },
             service: service,
             visitors: visitors
         };
@@ -2226,7 +2232,7 @@ function parseUnitMainNew(html, url) {
         if ($td.length > 0)
             service = serviceFromStrOrError($td.text());
         return {
-            employees: { employees: employees, required: employeesReq, efficiency: employeesEff },
+            employees: { employees: employees, required: employeesReq, efficiency: employeesEff, holidays: inHoliday },
             rent: rent,
             visitors: visitors,
             service: service,
@@ -2426,21 +2432,26 @@ function parseUnitFinRep(html, url) {
 function parseWareResize(html, url) {
     let $html = $(html);
     try {
-        let _size = $html.find(".nowrap:nth-child(2)").map((i, e) => {
-            let txt = $(e).text();
-            let sz = numberfyOrError(txt);
+        let sz = [];
+        let rent = [];
+        let id = [];
+        $html.find(":radio").closest("tr").each((i, el) => {
+            let $r = $(el);
+            let $tds = $r.children("td");
+            let txt = $tds.eq(1).text();
             if (txt.indexOf("тыс") >= 0)
-                sz *= 1000;
-            if (txt.indexOf("млн") >= 0)
-                sz *= 1000000;
-            return sz;
-        }).get();
-        let _rent = $html.find(".nowrap:nth-child(3)").map((i, e) => numberfyOrError($(e).text())).get();
-        let _id = $html.find(":radio").map((i, e) => numberfyOrError($(e).val())).get();
+                sz.push(numberfyOrError(txt) * 1000);
+            else if (txt.indexOf("млн") >= 0)
+                sz.push(numberfyOrError(txt) * 1000000);
+            else if (txt.indexOf("терминал") >= 0)
+                sz.push(500 * 1000000);
+            rent.push(numberfyOrError($tds.eq(2).text()));
+            id.push(numberfyOrError($tds.eq(0).find(":radio").val()));
+        });
         return {
-            capacity: _size,
-            rent: _rent,
-            id: _id
+            capacity: sz,
+            rent: rent,
+            id: id
         };
     }
     catch (err) {
@@ -3788,7 +3799,8 @@ class ParseError extends Error {
 /// <reference path= "../../XioPorted/PageParsers/1_Exceptions.ts" />
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
-let realm = getRealmOrError();
+let Realm = getRealmOrError();
+let StoreKeyCode = "vh";
 let companyId = getCompanyId();
 let currentGameDate = parseGameDate(document, document.location.pathname);
 let dataVersion = 2; // версия сохраняемых данных. При изменении формата менять и версию
@@ -3859,7 +3871,7 @@ function unitList() {
     // парсинг данных
     let $parseBtn = $("<input type='button' id='vh_parseVisitors' value='Parse Visitors'>");
     // если сегодня еще не парсили, тогда блинкать кнопку дабы не забыть
-    let lastDate = localStorage[buildStoreKey(realm, "vh")];
+    let lastDate = localStorage[buildStoreKey(Realm, StoreKeyCode)];
     let today = dateToShort(currentGameDate);
     if (lastDate !== today) {
         setInterval(() => {
@@ -3885,7 +3897,7 @@ function unitList() {
             $("#lgAllDone").show();
             saveInfo(parsedInfo);
             // запишем так же флаг что сегодня уж парсили. а то кнопка блинкать будет
-            localStorage[buildStoreKey(realm, "vh")] = today;
+            localStorage[buildStoreKey(Realm, StoreKeyCode)] = today;
             $("#xDone").show();
         }
         catch (err) {
@@ -3974,7 +3986,7 @@ function unitList() {
                 return false;
             // если ключик не совпадает со старым ключем для посетителей
             let subid = m[0];
-            if (key !== buildStoreKey(realm, "vh", subid))
+            if (key !== buildStoreKey(Realm, StoreKeyCode, subid))
                 return false;
             return true;
         });
@@ -3986,6 +3998,12 @@ function unitList() {
         Import($header);
     });
     $vh.append($importBtn);
+    // экспорт в CSV формат
+    let $exportCsvBtn = $("<input type='button' id='vh_exportCsv' value='Export Csv'>");
+    $exportCsvBtn.on("click", () => {
+        exportCsv($header);
+    });
+    $vh.append($exportCsvBtn);
     $header.append($vh);
     // собираем всю информацию по магазинам включая рекламу и доходы
     function parseVisitors_async() {
@@ -4033,7 +4051,7 @@ function unitList() {
         for (let key in parsedInfo) {
             let subid = parseInt(key);
             let info = parsedInfo[subid];
-            let storeKey = buildStoreKey(realm, "vh", subid);
+            let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
             let dateKey = dateToShort(info.date);
             // компактифицируем данные по юниту
             let dic = {};
@@ -4070,8 +4088,8 @@ function unitList() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 // собираем странички
-                let urlMain = `/${realm}/main/unit/view/${subid}`;
-                let urlAdv = `/${realm}/main/unit/view/${subid}/virtasement`;
+                let urlMain = `/${Realm}/main/unit/view/${subid}`;
+                let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
                 let [htmlMain, htmlAdv] = yield Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
                 //let htmlAdv = await tryGet_async(urlAdv);
                 // парсим данные
@@ -4102,15 +4120,15 @@ function unitList() {
             // восстанавливаем пагинацию и фильтрацию
             try {
                 // ставим фильтр в магазины и сбросим пагинацию
-                yield tryGet_async(`/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
-                yield tryGet_async(`/${realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
-                let htmlShops = yield tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
+                yield tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
+                yield tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
+                let htmlShops = yield tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
                 // загрузим заправки
-                yield tryGet_async(`/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
-                let htmlFuels = yield tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
+                yield tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
+                let htmlFuels = yield tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
                 // вернем пагинацию, и вернем назад установки фильтрации
-                yield tryGet_async(`/${realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
-                yield tryGet_async($(".u-s").attr("href") || `/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
+                yield tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
+                yield tryGet_async($(".u-s").attr("href") || `/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
                 // обработаем страничку и вернем результат
                 let arr = [];
                 let shops = parseUnitList(htmlShops, document.location.pathname);
@@ -4137,13 +4155,13 @@ function unitList() {
     function getProfits_async() {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                let urlShops = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
-                let urlFuels = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
+                let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
+                let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
                 // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
-                yield tryGet_async(`/${realm}/main/common/util/setpaging/reportcompany/units/20000`);
+                yield tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
                 let htmlShops = yield tryGet_async(urlShops);
                 let htmlFuels = yield tryGet_async(urlFuels);
-                yield tryGet_async(`/${realm}/main/common/util/setpaging/reportcompany/units/400`);
+                yield tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/400`);
                 // обработаем полученную страничку
                 let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
                 let profitsFuels = parseFinanceRepByUnits(htmlFuels, urlFuels);
@@ -4363,7 +4381,7 @@ function showHistory(info, container) {
 }
 // загрузка данных по 1 юниту и конвертация в нормальный формат
 function loadInfo(subid) {
-    let storeKey = buildStoreKey(realm, "vh", subid);
+    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
     let compacted = JSON.parse(localStorage[storeKey]);
     let expanded = expand(compacted[1]);
     return expanded;
@@ -4373,6 +4391,41 @@ function getSubid() {
     if (numbers == null || numbers.length < 1)
         throw new Error("Не смогли спарсить subid юнита со ссылки");
     return numbers[0];
+}
+function exportCsv($place) {
+    if ($place.length <= 0)
+        return false;
+    if ($place.find("#txtExport").length > 0) {
+        $place.find("#txtExport").remove();
+        return false;
+    }
+    let $txt = $('<textarea id="txtExport" style="display:block;width: 800px; height: 200px"></textarea>');
+    // собираем все номера юнитов
+    let subids = [];
+    for (let key in localStorage) {
+        // если в ключе нет числа, не брать его
+        let m = extractIntPositive(key);
+        if (m == null)
+            continue;
+        // если ключик не совпадает со старым ключем для посетителей
+        let subid = m[0];
+        if (key !== buildStoreKey(Realm, StoreKeyCode, subid))
+            continue;
+        subids.push(subid);
+    }
+    let exportStr = "subid;date;visitors;service;income;celebr;budget;pop" + "\n";
+    // грузим данные по юниту, подгружаем размер города его имя
+    for (let subid of subids) {
+        let infoDict = loadInfo(subid);
+        for (let dateKey in infoDict) {
+            let item = infoDict[dateKey];
+            let str = formatStr("{0};{1};{2};{3};{4};{5};{6};{7}", subid, dateKey, item.visitors, item.service, item.income, item.celebrity, item.budget, item.population);
+            exportStr += str + "\n";
+        }
+    }
+    $txt.text(exportStr);
+    $place.append($txt);
+    return true;
 }
 $(document).ready(() => Start());
 //# sourceMappingURL=visitors_history.user.js.map

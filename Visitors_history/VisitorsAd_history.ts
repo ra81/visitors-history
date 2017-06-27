@@ -6,7 +6,8 @@
 
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
-let realm = getRealmOrError();
+let Realm = getRealmOrError();
+let StoreKeyCode = "vh";
 let companyId = getCompanyId();
 let currentGameDate = parseGameDate(document, document.location.pathname);
 let dataVersion = 2;    // версия сохраняемых данных. При изменении формата менять и версию
@@ -124,7 +125,7 @@ function unitList() {
     let $parseBtn = $("<input type='button' id='vh_parseVisitors' value='Parse Visitors'>");
     
     // если сегодня еще не парсили, тогда блинкать кнопку дабы не забыть
-    let lastDate = localStorage[buildStoreKey(realm, "vh")];
+    let lastDate = localStorage[buildStoreKey(Realm, StoreKeyCode)];
     let today = dateToShort(currentGameDate);
     if (lastDate !== today) {
         setInterval(() => {
@@ -154,7 +155,7 @@ function unitList() {
 
             saveInfo(parsedInfo);
             // запишем так же флаг что сегодня уж парсили. а то кнопка блинкать будет
-            localStorage[buildStoreKey(realm, "vh")] = today;
+            localStorage[buildStoreKey(Realm, StoreKeyCode)] = today;
 
             $("#xDone").show();
         }
@@ -261,7 +262,7 @@ function unitList() {
 
             // если ключик не совпадает со старым ключем для посетителей
             let subid = m[0];
-            if (key !== buildStoreKey(realm, "vh", subid))
+            if (key !== buildStoreKey(Realm, StoreKeyCode, subid))
                 return false;
 
             return true;
@@ -275,6 +276,13 @@ function unitList() {
         Import($header);
     });
     $vh.append($importBtn);
+
+    // экспорт в CSV формат
+    let $exportCsvBtn = $("<input type='button' id='vh_exportCsv' value='Export Csv'>");
+    $exportCsvBtn.on("click", () => {
+        exportCsv($header);
+    });
+    $vh.append($exportCsvBtn);
 
     $header.append($vh);
 
@@ -331,7 +339,7 @@ function unitList() {
             let subid = parseInt(key);
             let info = parsedInfo[subid];
 
-            let storeKey = buildStoreKey(realm, "vh", subid);
+            let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
             let dateKey = dateToShort(info.date);
 
             // компактифицируем данные по юниту
@@ -380,8 +388,8 @@ function unitList() {
     async function getUnitInfo_async(subid: number): Promise<IVisitorsInfoEx> {
         try {
             // собираем странички
-            let urlMain = `/${realm}/main/unit/view/${subid}`;
-            let urlAdv = `/${realm}/main/unit/view/${subid}/virtasement`;
+            let urlMain = `/${Realm}/main/unit/view/${subid}`;
+            let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
             let [htmlMain, htmlAdv] = await Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
             //let htmlAdv = await tryGet_async(urlAdv);
 
@@ -415,17 +423,17 @@ function unitList() {
         // восстанавливаем пагинацию и фильтрацию
         try {
             // ставим фильтр в магазины и сбросим пагинацию
-            await tryGet_async(`/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
-            await tryGet_async(`/${realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
-            let htmlShops = await tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
+            await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
+            await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
+            let htmlShops = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
 
             // загрузим заправки
-            await tryGet_async(`/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
-            let htmlFuels = await tryGet_async(`/${realm}/main/company/view/${companyId}/unit_list`);
+            await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
+            let htmlFuels = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
 
             // вернем пагинацию, и вернем назад установки фильтрации
-            await tryGet_async(`/${realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
-            await tryGet_async($(".u-s").attr("href") || `/${realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
+            await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
+            await tryGet_async($(".u-s").attr("href") || `/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
 
             // обработаем страничку и вернем результат
             let arr: number[] = [];
@@ -458,14 +466,14 @@ function unitList() {
     // забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
     async function getProfits_async(): Promise<IDictionaryN<IUnitFinance>> {
         try {
-            let urlShops = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
-            let urlFuels = `/${realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
+            let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
+            let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
 
             // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
-            await tryGet_async(`/${realm}/main/common/util/setpaging/reportcompany/units/20000`);
+            await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
             let htmlShops = await tryGet_async(urlShops);
             let htmlFuels = await tryGet_async(urlFuels);
-            await tryGet_async(`/${realm}/main/common/util/setpaging/reportcompany/units/400`);
+            await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/400`);
 
             // обработаем полученную страничку
             let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
@@ -704,7 +712,7 @@ function showHistory(info: IDictionary<IVisitorsInfoEx>, container: JQuery) {
 // загрузка данных по 1 юниту и конвертация в нормальный формат
 function loadInfo(subid: number): IDictionary<IVisitorsInfoEx> {
 
-    let storeKey = buildStoreKey(realm, "vh", subid);
+    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
     let compacted = JSON.parse(localStorage[storeKey]) as [number, IDictionary<ICompactInfo>];
     let expanded = expand(compacted[1]);
     return expanded;
@@ -718,6 +726,50 @@ function getSubid() {
     return numbers[0];
 }
 
+function exportCsv($place: JQuery) {
+    if ($place.length <= 0)
+        return false;
 
+    if ($place.find("#txtExport").length > 0) {
+        $place.find("#txtExport").remove();
+        return false;
+    }
+
+    let $txt = $('<textarea id="txtExport" style="display:block;width: 800px; height: 200px"></textarea>');
+
+
+
+    // собираем все номера юнитов
+    let subids: number[] = [];
+    for (let key in localStorage) {
+        // если в ключе нет числа, не брать его
+        let m = extractIntPositive(key);
+        if (m == null)
+            continue;
+
+        // если ключик не совпадает со старым ключем для посетителей
+        let subid = m[0];
+        if (key !== buildStoreKey(Realm, StoreKeyCode, subid))
+            continue;
+
+        subids.push(subid);
+    }
+
+    let exportStr = "subid;date;visitors;service;income;celebr;budget;pop" + "\n";
+
+    // грузим данные по юниту, подгружаем размер города его имя
+    for (let subid of subids) {
+        let infoDict = loadInfo(subid);
+        for (let dateKey in infoDict) {
+            let item = infoDict[dateKey];
+            let str = formatStr("{0};{1};{2};{3};{4};{5};{6};{7}", subid, dateKey, item.visitors, item.service, item.income, item.celebrity, item.budget, item.population);
+            exportStr += str + "\n";
+        }
+    }
+
+    $txt.text(exportStr);
+    $place.append($txt);
+    return true;
+}
 
 $(document).ready(() => Start());
