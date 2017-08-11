@@ -8,5 +8,5 @@
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
 // @require        https://www.amcharts.com/lib/3/amcharts.js
 // @require        https://www.amcharts.com/lib/3/serial.js
-// @version        1.8
+// @version        1.10
 // ==/UserScript==

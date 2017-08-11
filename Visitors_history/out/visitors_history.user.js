@@ -16,7 +16,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
 // @require        https://www.amcharts.com/lib/3/amcharts.js
 // @require        https://www.amcharts.com/lib/3/serial.js
-// @version        1.8
+// @version        1.10
 // ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
@@ -3804,7 +3804,7 @@ let StoreKeyCode = "vh";
 let companyId = getCompanyId();
 let currentGameDate = parseGameDate(document, document.location.pathname);
 let dataVersion = 2; // версия сохраняемых данных. При изменении формата менять и версию
-let MaxDays = 60; // сколько точек данных сохранять. 52 значит виртогод
+let KeepWeeks = 60; // сколько точек данных сохранять. 52 значит виртогод
 /**
  * Укорачивает имена ключей для удобного сохранения. дабы не засерало кучу места.
  * Так же даты переводит в короткую форму строки
@@ -3891,6 +3891,10 @@ function unitList() {
             // формируем таблицу лога. внутри парсеров будут вызываться нотификаторы меняющие данные в таблице
             $(".logger").remove();
             $vh.append(buildTable());
+            // проверим что дата спарсилась адекватно без косяков
+            if (lastDate != null && currentGameDate < dateFromShort(lastDate))
+                throw new Error(`Ошибка парсинга текущей даты. Последняя:${dateFromShort(lastDate)}, Спарсилось: ${dateToShort(currentGameDate)}`);
+            // парсим данные
             let parsedInfo = yield parseVisitors_async();
             log("parsedInfo", parsedInfo);
             $("#lgCurrent").hide();
@@ -4048,6 +4052,9 @@ function unitList() {
         });
     }
     function saveInfo(parsedInfo) {
+        // дата, старее которой все удалять нахуй
+        let minDate = new Date(currentGameDate.getTime() - 1000 * 60 * 60 * 24 * 7 * KeepWeeks);
+        log(`minDate == ${dateToShort(minDate)}`);
         for (let key in parsedInfo) {
             let subid = parseInt(key);
             let info = parsedInfo[subid];
@@ -4075,7 +4082,7 @@ function unitList() {
                 return 0;
             });
             for (let d of dates) {
-                if (Object.keys(storedInfo[1]).length <= MaxDays)
+                if (d > minDate)
                     break;
                 delete storedInfo[1][dateToShort(d)];
                 log(`удалена запись для ${subid} с датой ${d}`);
