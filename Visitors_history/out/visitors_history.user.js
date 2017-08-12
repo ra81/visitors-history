@@ -1113,6 +1113,26 @@ function getStoredUnitsKeys(realm, storeKey) {
     return res;
 }
 /**
+ * Возвращает все ключи ЮНИТОВ для заданного реалма и КОДА. А так же subid юнита отдельно
+ * @param realm
+ * @param storeKey код ключа sh, udd, vh итд
+ */
+function getStoredUnitsKeysA(realm, storeKey) {
+    let res = [];
+    for (let key in localStorage) {
+        // если в ключе нет числа, не брать его
+        let m = extractIntPositive(key);
+        if (m == null)
+            continue;
+        // если ключик не совпадает со старым ключем для посетителей
+        let subid = m[0];
+        if (key !== buildStoreKey(realm, storeKey, subid))
+            continue;
+        res.push([key, subid]);
+    }
+    return res;
+}
+/**
  * Выводит текстовое поле, куда выводит все ключи с содержимым в формате ключ=значение|ключи=значение...
  * @param test функция возвращающая ИСТИНУ если данный ключик надо экспортить, иначе ЛОЖЬ
  * @param $place элемент страницы в который будет добавлено текстовое поле для вывода
@@ -3925,6 +3945,60 @@ function unitList() {
         keys.forEach((val, i, arr) => localStorage.removeItem(val));
     });
     //$vh.append($clearBtn);
+    // зачистить удалить записи с несуществующих магов
+    let $clearDeletedBtn = $("<input type='button' id='vh_clearDeleted' value='ClearDeleted'>");
+    $clearDeletedBtn.on("click", () => __awaiter(this, void 0, void 0, function* () {
+        $parseBtn.prop("disabled", true);
+        try {
+            // формируем таблицу лога. внутри парсеров будут вызываться нотификаторы меняющие данные в таблице
+            $(".logger").remove();
+            $vh.append(buildTable());
+            // парсим список магов со страницы юнитов
+            let p1 = yield getShopsFuels_async();
+            let subids = p1;
+            log("shops", subids);
+            // парсим профиты магов с отчета по подразделениям
+            let p2 = yield getProfits_async();
+            let finance = p2;
+            log("finance", finance);
+            // число элементов должно совпадать иначе какой то косяк
+            if (subids.length !== Object.keys(finance).length)
+                throw new Error("Число юнитов с главной, не совпало с числом юнитов взятых с отчета по подразделениям. косяк.");
+            // читаем из кэша все ключи и проверяем их наличие в списке юнитов. тех что нет, пишем в списко на удаление
+            let removed = [];
+            let stored = getStoredUnitsKeysA(Realm, StoreKeyCode);
+            for (let [key, subid] of stored) {
+                if (finance[subid] != null)
+                    continue;
+                if (isOneOf(subid, subids))
+                    continue;
+                removed.push(subid);
+            }
+            log("removed units", removed);
+            notifyTotal(removed.length);
+            // удаляем все старые
+            let cnt = 0;
+            for (let subid of removed) {
+                notifyCurrent(subid);
+                let key = buildStoreKey(Realm, StoreKeyCode, subid);
+                delete localStorage[key];
+                cnt++;
+                notifyDone(subid, cnt);
+            }
+            $("#xDone").show();
+        }
+        catch (err) {
+            log("ошибка удаления старых юнитов", err);
+            $("#xFail").show();
+            let e = err;
+            $("#lgProblem").append(e.message + " => " + e.stack);
+            throw err;
+        }
+        finally {
+            $parseBtn.prop("disabled", false);
+        }
+    }));
+    $vh.append($clearDeletedBtn);
     // конвертировать кэш. юзать в особых случаях когда шибко надо
     let $convertBtn = $("<input type='button' id='vh_convert' value='Convert'>");
     $convertBtn.on("click", () => {
