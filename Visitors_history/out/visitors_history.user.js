@@ -16,7 +16,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 // @require        https://code.jquery.com/jquery-1.11.1.min.js
 // @require        https://www.amcharts.com/lib/3/amcharts.js
 // @require        https://www.amcharts.com/lib/3/serial.js
-// @version        1.10
+// @version        1.11
 // ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
@@ -3939,12 +3939,11 @@ function unitList() {
     // зачистить старую историю
     let $clearBtn = $("<input type='button' id='vh_clearOld' value='Clear'>");
     $clearBtn.on("click", () => {
-        let keys = Object.keys(localStorage);
-        keys = keys.filter((val, i, arr) => val.indexOf("vh") === 0);
+        let keys = getStoredUnitsKeys(Realm, StoreKeyCode);
         log("parser ", keys);
         keys.forEach((val, i, arr) => localStorage.removeItem(val));
     });
-    //$vh.append($clearBtn);
+    $vh.append($clearBtn);
     // зачистить удалить записи с несуществующих магов
     let $clearDeletedBtn = $("<input type='button' id='vh_clearDeleted' value='ClearDeleted'>");
     $clearDeletedBtn.on("click", () => __awaiter(this, void 0, void 0, function* () {

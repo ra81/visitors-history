@@ -181,12 +181,11 @@ function unitList() {
     // зачистить старую историю
     let $clearBtn = $("<input type='button' id='vh_clearOld' value='Clear'>");
     $clearBtn.on("click", () => {
-        let keys = Object.keys(localStorage);
-        keys = keys.filter((val, i, arr) => val.indexOf("vh") === 0);
+        let keys = getStoredUnitsKeys(Realm, StoreKeyCode);
         log("parser ", keys);
         keys.forEach((val, i, arr) => localStorage.removeItem(val));
     });
-    //$vh.append($clearBtn);
+    $vh.append($clearBtn);
 
     // зачистить удалить записи с несуществующих магов
     let $clearDeletedBtn = $("<input type='button' id='vh_clearDeleted' value='ClearDeleted'>");
