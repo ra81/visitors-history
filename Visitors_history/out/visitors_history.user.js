@@ -6,18 +6,6 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments)).next());
     });
 };
-// ==UserScript==
-// @name           Virtonomica: Visitors and Advertisments history
-// @namespace      virtonomica
-// @author         ra81
-// @description    Сохранение и вывод информации о посетосах и рекламном бюджете и известности
-// @include        http*://virtonomic*.*/*/main/unit/view/*
-// @include        http*://virtonomic*.*/*/main/company/view/*/unit_list
-// @require        https://code.jquery.com/jquery-1.11.1.min.js
-// @require        https://www.amcharts.com/lib/3/amcharts.js
-// @require        https://www.amcharts.com/lib/3/serial.js
-// @version        1.11
-// ==/UserScript== 
 // 
 // Набор вспомогательных функций для использования в других проектах. Универсальные
 //   /// <reference path= "../../_jsHelper/jsHelper/jsHelper.ts" />
@@ -429,6 +417,12 @@ function extractDate(str) {
     let y = parseInt(m[3]);
     return new Date(y, mon, d);
 }
+function extractDateOrError(str) {
+    let dt = extractDate(str);
+    if (dt == null)
+        throw new Error(`Не получилось извлечь дату из "${str}"`);
+    return dt;
+}
 /**
  * из даты формирует короткую строку типа 01.12.2017
  * @param date
@@ -573,6 +567,7 @@ let url_manag_empl_rx = /\/[a-z]+\/main\/company\/view\/\d+\/unit_list\/employee
 // 
 let url_global_products_rx = /[a-z]+\/main\/globalreport\/marketing\/by_products\/\d+\/?$/i; // глобальный отчет по продукции из аналитики
 let url_products_rx = /\/[a-z]+\/main\/common\/main_page\/game_info\/products$/i; // страница со всеми товарами игры
+let url_trade_products_rx = /\/[a-z]+\/main\/common\/main_page\/game_info\/trading$/i; // страница с торгуемыми товарами
 let url_city_retail_report_rx = /\/[a-z]+\/(?:main|window)\/globalreport\/marketing\/by_trade_at_cities\/\d+/i; // розничный отчет по конкретному товару
 let url_products_size_rx = /\/[a-z]+\/main\/industry\/unit_type\/info\/2011\/volume\/?/i; // размеры продуктов на склада
 let url_country_duties_rx = /\/[a-z]+\/main\/geo\/countrydutylist\/\d+\/?/i; // таможенные пошлины и ИЦ
@@ -1157,6 +1152,25 @@ function Export($place, test) {
     $place.append($txt);
     return true;
 }
+function ExportA($place, keys, converter, delim = "\n") {
+    if ($place.length <= 0)
+        return false;
+    if ($place.find("#txtExport").length > 0) {
+        $place.find("#txtExport").remove();
+        return false;
+    }
+    let $txt = $('<textarea id="txtExport" style="display:block;width: 800px; height: 200px"></textarea>');
+    let exportStr = "";
+    for (let key of keys) {
+        if (exportStr.length > 0)
+            exportStr += delim;
+        let item = converter == null ? localStorage[key] : converter(localStorage[key]);
+        exportStr += `${key}=${item}`;
+    }
+    $txt.text(exportStr);
+    $place.append($txt);
+    return true;
+}
 /**
  * Импортирует в кэш данные введенные к текстовое окно. Формат данных такой же как в экспорте
  * Ключ=Значение|Ключ=Значение итд.
@@ -1189,9 +1203,49 @@ function Import($place) {
                 let storeVal = kvp[1].trim();
                 if (storeKey.length <= 0 || storeVal.length <= 0)
                     throw new Error("Длина ключа или данных равна 0 " + item);
-                if (localStorage[storeKey])
+                if (localStorage[storeKey] != null)
                     logDebug(`Ключ ${storeKey} существует. Перезаписываем.`);
                 localStorage[storeKey] = storeVal;
+            });
+            alert("импорт завершен");
+        }
+        catch (err) {
+            let msg = err.message;
+            alert(msg);
+        }
+    });
+    $place.append($txt).append($saveBtn);
+    return true;
+}
+function ImportA($place, converter, delim = "\n") {
+    if ($place.length <= 0)
+        return false;
+    if ($place.find("#txtImport").length > 0) {
+        $place.find("#txtImport").remove();
+        $place.find("#saveImport").remove();
+        return false;
+    }
+    let $txt = $('<textarea id="txtImport" style="display:block;width: 800px; height: 200px"></textarea>');
+    let $saveBtn = $(`<input id="saveImport" type=button disabled="true" value="Save!">`);
+    $txt.on("input propertychange", (event) => $saveBtn.prop("disabled", false));
+    $saveBtn.on("click", (event) => {
+        let items = $txt.val().split(delim); // элементы вида Ключ=значение
+        logDebug(`загружено ${items.length} элементов`);
+        try {
+            items.forEach((val, i, arr) => {
+                let item = val.trim();
+                if (item.length <= 0)
+                    throw new Error(`получили пустую строку для элемента ${i}, невозможно импортировать.`);
+                let kvp = item.split("="); // пара ключ значение
+                if (kvp.length !== 2)
+                    throw new Error("Должен быть только ключ и значение а по факту не так. " + item);
+                let storeKey = kvp[0].trim();
+                let storeVal = kvp[1].trim();
+                if (storeKey.length <= 0 || storeVal.length <= 0)
+                    throw new Error("Длина ключа или данных равна 0 " + item);
+                if (localStorage[storeKey] != null)
+                    logDebug(`Ключ ${storeKey} существует. Перезаписываем.`);
+                localStorage[storeKey] = converter == null ? storeVal : converter(storeVal);
             });
             alert("импорт завершен");
         }
@@ -2520,6 +2574,8 @@ function parseWareMain(html, url) {
 }
 /**
  * Снабжение склада
+   [[товар, контракты[]], товары внизу страницы без контрактов]
+   возможно что будут дубли id товара ведь малиновый пиджак и простой имеют общий id
  * @param html
  * @param url
  */
@@ -2528,6 +2584,7 @@ function parseWareSupply(html, url) {
     try {
         // для 1 товара может быть несколько поставщиков, поэтому к 1 продукту будет идти массив контрактов
         let $rows = $html.find("tr.p_title");
+        // парсинг товаров на которые есть заказы
         let res = [];
         $rows.each((i, el) => {
             let $r = $(el); // это основной ряд, после него еще будут ряды до следующего это контракты
@@ -2665,6 +2722,49 @@ function parseWareSupply(html, url) {
                 });
             });
             res.push([product, contracts]);
+        });
+        // парсинг товаров внизу на которые заказов нет
+        let $items = $html.find("div.add_contract");
+        let arr = [];
+        $items.each((i, el) => {
+            let $div = $(el);
+            let $img = oneOrError($div, "img");
+            let img = $img.attr("src");
+            let name = $img.attr("alt");
+            let $a = $img.closest("a");
+            let n = extractIntPositive($a.attr("href"));
+            if (n == null || n.length != 3)
+                throw new Error("не нашли id товара " + img);
+            let id = n[2];
+            arr.push({ id: id, img: img, name: name });
+        });
+        return [res, arr];
+    }
+    catch (err) {
+        throw err;
+    }
+}
+/**
+ * Страница смены спецухи для склада.
+ * /olga/window/unit/speciality_change/6835788
+    [id, название, выделена?]
+ * @param html
+ * @param url
+ */
+function parseWareChangeSpec(html, url) {
+    let $html = $(html);
+    let res = [];
+    try {
+        let $rows = $html.find("table.list").find("tr.even,tr.odd");
+        if ($rows.length <= 0)
+            throw new Error("Не найдено ни одной специализации");
+        $rows.each((i, el) => {
+            let $r = $(el);
+            let $radio = oneOrError($r, "input");
+            let cat = parseInt($radio.val());
+            let name = $r.children("td").eq(1).text();
+            let checked = $radio.prop("checked");
+            res.push([cat, name, checked]);
         });
         return res;
     }
@@ -3762,6 +3862,56 @@ function parseTM(html, url) {
         throw err;
     }
 }
+/**
+ * Парсер отчета по производственным специализациям со страницы аналитических отчетов
+   /olga/main/mediareport
+ * @param html
+ * @param url
+ */
+function parseReportSpec(html, url) {
+    let $html = $(html);
+    try {
+        let $table = oneOrError($html, "table.list");
+        let $rows = $table.find("img").closest(".even, .odd"); // в каждой строке картинка товара, но картинки есть и в других местах
+        if ($rows.length < 5)
+            throw new Error(`найдено слишком мало(${$rows.length}) специализаций в отчете ${url}`);
+        let res = [];
+        $rows.each((i, el) => {
+            let $r = $(el);
+            let $tds = $r.children("td");
+            // спецуха
+            let $a = oneOrError($tds.eq(0), "a");
+            let spec = $a.text();
+            let n = extractIntPositive($a.attr("href"));
+            if (n == null || n.length != 1)
+                throw new Error("не нашли id завода " + spec);
+            let fid = n[0]; // id завода. есть товары которые на разных заводах можно делать а спецуха одинакова
+            // товар
+            let $img = oneOrError($tds.eq(1), "img");
+            let img = $img.attr("src");
+            let name = $img.attr("alt");
+            $a = $img.closest("a");
+            n = extractIntPositive($a.attr("href"));
+            if (n == null || n.length != 1)
+                throw new Error("не нашли id товара " + img);
+            let id = n[0];
+            // производство 
+            let units = numberfyOrError($tds.eq(2).text(), -1);
+            let quant = numberfyOrError(getInnerText($tds.get(3)), -1);
+            res.push({
+                product: { id: id, img: img, name: name },
+                specialization: spec,
+                factoryID: fid,
+                quantity: quant,
+                unitCount: units
+            });
+        });
+        return res;
+    }
+    catch (err) {
+        throw err;
+    }
+}
 function parseX(html, url) {
     //let $html = $(html);
     //try {
@@ -3813,6 +3963,19 @@ class ParseError extends Error {
         super(msg);
     }
 }
+// ==UserScript==
+// @name           Virtonomica: Visitors and Advertisments history
+// @namespace      virtonomica
+// @author         ra81
+// @description    Сохранение и вывод информации о посетосах и рекламном бюджете и известности
+// @include        http*://virtonomic*.*/*/main/unit/view/*
+// @include        http*://virtonomic*.*/*/main/company/view/*/unit_list
+// @require        https://code.jquery.com/jquery-1.11.1.min.js
+// @require        https://www.amcharts.com/lib/3/amcharts.js
+// @require        https://www.amcharts.com/lib/3/serial.js
+// @require        https://raw.githubusercontent.com/pieroxy/lz-string/master/libs/lz-string.min.js
+// @version        2.0
+// ==/UserScript==
 /// <reference path= "../../_jsHelper/jsHelper/jsHelper.ts" />
 /// <reference path= "../../XioPorted/PageParsers/2_IDictionary.ts" />
 /// <reference path= "../../XioPorted/PageParsers/7_PageParserFunctions.ts" />
@@ -4056,233 +4219,23 @@ function unitList() {
     // экспортировать данные
     let $exportBtn = $("<input type='button' id='vh_export' value='Export'>");
     $exportBtn.on("click", () => {
-        Export($header, (key) => {
-            // если в ключе нет числа, не брать его
-            let m = extractIntPositive(key);
-            if (m == null)
-                return false;
-            // если ключик не совпадает со старым ключем для посетителей
-            let subid = m[0];
-            if (key !== buildStoreKey(Realm, StoreKeyCode, subid))
-                return false;
-            return true;
-        });
+        let keys = getStoredUnitsKeys(Realm, StoreKeyCode);
+        ExportA($vh, keys, convertLoad, "\n");
     });
     $vh.append($exportBtn);
     // импортировать данные
     let $importBtn = $("<input type='button' id='vh_import' value='Import'>");
     $importBtn.on("click", () => {
-        Import($header);
+        ImportA($vh, convertStore, "\n");
     });
     $vh.append($importBtn);
     // экспорт в CSV формат
     let $exportCsvBtn = $("<input type='button' id='vh_exportCsv' value='Export Csv'>");
     $exportCsvBtn.on("click", () => {
-        exportCsv($header);
+        exportCsv($vh);
     });
     $vh.append($exportCsvBtn);
     $header.append($vh);
-    // собираем всю информацию по магазинам включая рекламу и доходы
-    function parseVisitors_async() {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                // парсим список магов со страницы юнитов
-                let p1 = yield getShopsFuels_async();
-                let subids = p1;
-                log("shops", subids);
-                // парсим профиты магов с отчета по подразделениям
-                let p2 = yield getProfits_async();
-                let finance = p2;
-                log("finance", finance);
-                // число элементов должно совпадать иначе какой то косяк
-                if (subids.length !== Object.keys(finance).length)
-                    throw new Error("Число юнитов с главной, не совпало с числом юнитов взятых с отчета по подразделениям. косяк.");
-                notifyTotal(subids.length);
-                // теперь для каждого мага надо собрать информацию по посетосам и бюджету
-                // для полученного списка парсим инфу по посетителям, известности, рекламному бюджету
-                // !!!!!! использовать forEach оказалось опасно. Так как там метод, он быстро выполнялся БЕЗ ожидания
-                // завершения промисов и я получал данные когда то в будущем. Через циклы работает
-                let parsedInfo = {};
-                let done = 0;
-                for (let subid of subids) {
-                    // собираем данные по юниту и дополняем недостающим
-                    notifyCurrent(subid);
-                    let info = yield getUnitInfo_async(subid);
-                    info.date = currentGameDate;
-                    info.income = finance[subid].income; // если вдруг данных не будет все равно вывалит ошибку
-                    if (parsedInfo[subid])
-                        throw new Error("юнита еще не должно быть в списке спарсеных " + subid);
-                    parsedInfo[subid] = info;
-                    done++;
-                    notifyDone(subid, done);
-                }
-                return parsedInfo;
-            }
-            catch (err) {
-                log("Ошибка сбора посетителей.", err);
-                throw err;
-            }
-        });
-    }
-    function saveInfo(parsedInfo) {
-        // дата, старее которой все удалять нахуй
-        let minDate = new Date(currentGameDate.getTime() - 1000 * 60 * 60 * 24 * 7 * KeepWeeks);
-        log(`minDate == ${dateToShort(minDate)}`);
-        for (let key in parsedInfo) {
-            let subid = parseInt(key);
-            let info = parsedInfo[subid];
-            let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
-            let dateKey = dateToShort(info.date);
-            // компактифицируем данные по юниту
-            let dic = {};
-            dic[dateKey] = info;
-            let compactInfo = compact(dic)[dateKey];
-            // если записи о юните еще нет, сформируем иначе считаем данные
-            let storedInfo = [dataVersion, {}];
-            if (localStorage[storeKey] != null)
-                storedInfo = JSON.parse(localStorage[storeKey]);
-            // обновим данные и сохраним назад
-            if (storedInfo[1][dateKey])
-                log(`${subid}:${dateKey} существует. заменяем на`, compactInfo);
-            storedInfo[1][dateKey] = compactInfo;
-            // подчистим старые данные чтобы лог не захламлять
-            let dates = Object.keys(storedInfo[1]).map(v => dateFromShort(v));
-            dates.sort((a, b) => {
-                if (a > b)
-                    return 1;
-                if (a < b)
-                    return -1;
-                return 0;
-            });
-            for (let d of dates) {
-                if (d > minDate)
-                    break;
-                delete storedInfo[1][dateToShort(d)];
-                log(`удалена запись для ${subid} с датой ${d}`);
-            }
-            localStorage[storeKey] = JSON.stringify(storedInfo);
-        }
-    }
-    // собирает, число посетителей, сервис, известность, бюджет, население.
-    function getUnitInfo_async(subid) {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                // собираем странички
-                let urlMain = `/${Realm}/main/unit/view/${subid}`;
-                let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
-                let [htmlMain, htmlAdv] = yield Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
-                //let htmlAdv = await tryGet_async(urlAdv);
-                // парсим данные
-                let adv = parseAds(htmlAdv, urlAdv);
-                let main = parseUnitMain(htmlMain, urlMain);
-                let res = {
-                    date: new Date(),
-                    income: -1,
-                    visitors: main.visitors,
-                    service: main.service,
-                    celebrity: adv.celebrity,
-                    budget: adv.budget,
-                    population: adv.pop
-                };
-                return res;
-            }
-            catch (err) {
-                log("ошибка получения данных по юниту " + subid, err);
-                throw err;
-            }
-        });
-    }
-    // получает список subid для всех наших магазинов и заправок
-    function getShopsFuels_async() {
-        return __awaiter(this, void 0, void 0, function* () {
-            // ставим фильтрацию на магазины, сбрасываем пагинацию.
-            // парсим юниты, 
-            // восстанавливаем пагинацию и фильтрацию
-            try {
-                // ставим фильтр в магазины и сбросим пагинацию
-                yield tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
-                yield tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
-                let htmlShops = yield tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
-                // загрузим заправки
-                yield tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
-                let htmlFuels = yield tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
-                // вернем пагинацию, и вернем назад установки фильтрации
-                yield tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
-                yield tryGet_async($(".u-s").attr("href") || `/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
-                // обработаем страничку и вернем результат
-                let arr = [];
-                let shops = parseUnitList(htmlShops, document.location.pathname);
-                for (let key in shops) {
-                    if (shops[key].type !== UnitTypes.shop)
-                        throw new Error("мы должны получить только магазины, а получили " + shops[key].type);
-                    arr.push(shops[key].subid);
-                }
-                let fuels = parseUnitList(htmlFuels, document.location.pathname);
-                for (let key in fuels) {
-                    if (fuels[key].type !== UnitTypes.fuel)
-                        throw new Error("мы должны получить только заправки, а получили " + fuels[key].type);
-                    arr.push(fuels[key].subid);
-                }
-                return arr;
-            }
-            catch (err) {
-                log("ошибка запроса юнитов.", err);
-                throw err;
-            }
-        });
-    }
-    // забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
-    function getProfits_async() {
-        return __awaiter(this, void 0, void 0, function* () {
-            try {
-                let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
-                let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
-                // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
-                yield tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
-                let htmlShops = yield tryGet_async(urlShops);
-                let htmlFuels = yield tryGet_async(urlFuels);
-                yield tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/400`);
-                // обработаем полученную страничку
-                let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
-                let profitsFuels = parseFinanceRepByUnits(htmlFuels, urlFuels);
-                return mergeDictN(profitsShops, profitsFuels);
-            }
-            catch (err) {
-                log("ошибка обработки отчета по подразделениям", err);
-                throw err;
-            }
-        });
-    }
-    // шляпа что рисуется сверху и показывает результаты
-    function buildTable() {
-        return `
-        <div class='logger' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>Process Log</div>
-            <table id='lgTable' class='logger' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
-                <tr>
-                    <td>Units: </td>
-                    <td id='lgDone'>0</td>
-                    <td>of</td>
-                    <td id='lgTotal'>0</td>
-                    <td id='lgAllDone' style='display: none; color: lightgoldenrodyellow'>Done!</td>
-                    <td id='lgCurrent' style='color: lightgoldenrodyellow'></td>
-                </tr>
-                <tr>
-                    <td id='xDone' colspan=6 style='display: none; color: lightgoldenrodyellow'>All Done!</td>
-                    <td id='xFail' colspan=6 style='display: none; color: lightgoldenrodyellow'>Failed!</td>
-                </tr>
-            </table>
-            <div id='lgProblem' class='logger' style='color:red;'></div>
-        </div>`;
-    }
-    function notifyTotal(shopCount) {
-        $("#lgTotal").text(shopCount);
-    }
-    function notifyCurrent(subid) {
-        $("#lgCurrent").text(subid);
-    }
-    function notifyDone(subid, count) {
-        $("#lgDone").text(count);
-    }
 }
 function unitMain() {
     if (!isShop(document) && !isFuel(document)) {
@@ -4301,7 +4254,7 @@ function unitMain() {
                             <div id="chartContainer" style="display:block; width:100%; height:600px"></div>
                         </td>
                      </tr>`);
-            let info = loadInfo(getSubid());
+            let info = loadData(getSubid());
             showHistory(info, $("#chartContainer"));
         }
         else {
@@ -4459,13 +4412,6 @@ function showHistory(info, container) {
     chart.invalidateSize();
     //log("showed");
 }
-// загрузка данных по 1 юниту и конвертация в нормальный формат
-function loadInfo(subid) {
-    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
-    let compacted = JSON.parse(localStorage[storeKey]);
-    let expanded = expand(compacted[1]);
-    return expanded;
-}
 function getSubid() {
     let numbers = extractIntPositive(document.location.pathname);
     if (numbers == null || numbers.length < 1)
@@ -4496,7 +4442,7 @@ function exportCsv($place) {
     let exportStr = "subid;date;visitors;service;income;celebr;budget;pop" + "\n";
     // грузим данные по юниту, подгружаем размер города его имя
     for (let subid of subids) {
-        let infoDict = loadInfo(subid);
+        let infoDict = loadData(subid);
         for (let dateKey in infoDict) {
             let item = infoDict[dateKey];
             let str = formatStr("{0};{1};{2};{3};{4};{5};{6};{7}", subid, dateKey, item.visitors, item.service, item.income, item.celebrity, item.budget, item.population);
@@ -4507,5 +4453,241 @@ function exportCsv($place) {
     $place.append($txt);
     return true;
 }
+// собираем всю информацию по магазинам включая рекламу и доходы
+function parseVisitors_async() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // парсим список магов со страницы юнитов
+            let p1 = yield getShopsFuels_async();
+            let subids = p1;
+            log("shops", subids);
+            // парсим профиты магов с отчета по подразделениям
+            let p2 = yield getProfits_async();
+            let finance = p2;
+            log("finance", finance);
+            // число элементов должно совпадать иначе какой то косяк
+            if (subids.length !== Object.keys(finance).length)
+                throw new Error("Число юнитов с главной, не совпало с числом юнитов взятых с отчета по подразделениям. косяк.");
+            notifyTotal(subids.length);
+            // теперь для каждого мага надо собрать информацию по посетосам и бюджету
+            // для полученного списка парсим инфу по посетителям, известности, рекламному бюджету
+            // !!!!!! использовать forEach оказалось опасно. Так как там метод, он быстро выполнялся БЕЗ ожидания
+            // завершения промисов и я получал данные когда то в будущем. Через циклы работает
+            let parsedInfo = {};
+            let done = 0;
+            for (let subid of subids) {
+                // собираем данные по юниту и дополняем недостающим
+                notifyCurrent(subid);
+                let info = yield getUnitInfo_async(subid);
+                info.date = currentGameDate;
+                info.income = finance[subid].income; // если вдруг данных не будет все равно вывалит ошибку
+                if (parsedInfo[subid])
+                    throw new Error("юнита еще не должно быть в списке спарсеных " + subid);
+                parsedInfo[subid] = info;
+                done++;
+                notifyDone(subid, done);
+            }
+            return parsedInfo;
+        }
+        catch (err) {
+            log("Ошибка сбора посетителей.", err);
+            throw err;
+        }
+    });
+}
+/**
+ * Записывает собранные за сегодня данные в хранилище
+ * @param parsedInfo
+ */
+function saveInfo(parsedInfo) {
+    // дата, старее которой все удалять нахуй
+    let minDate = new Date(currentGameDate.getTime() - 1000 * 60 * 60 * 24 * 7 * KeepWeeks);
+    log(`minDate == ${dateToShort(minDate)}`);
+    for (let key in parsedInfo) {
+        let subid = parseInt(key);
+        let info = parsedInfo[subid];
+        let dateKey = dateToShort(info.date);
+        let storedInfo = loadData(subid);
+        // обновим данные и сохраним назад
+        if (storedInfo[dateKey] != null)
+            log(`${subid}:${dateKey} существует. заменяем на`, info);
+        storedInfo[dateKey] = info;
+        // подчистим старые данные чтобы лог не захламлять
+        // сортировку оставим чтобы удаление в лог писало даты последовательно а не вразноброс
+        let dates = Object.keys(storedInfo).map(dt => dateFromShort(dt));
+        dates.sort((a, b) => {
+            if (a > b)
+                return 1;
+            if (a < b)
+                return -1;
+            return 0;
+        });
+        for (let d of dates) {
+            if (d > minDate)
+                break;
+            delete storedInfo[dateToShort(d)];
+            log(`удалена запись для ${subid} с датой ${d}`);
+        }
+        storeData(subid, storedInfo);
+    }
+}
+/**
+ * загрузка данных для заданного юнита и конвертация в полный формат
+   если данных нет то вернет {}
+ * @param subid
+ */
+function loadData(subid) {
+    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
+    let info = localStorage[storeKey];
+    if (info == null)
+        return {};
+    let [ver, compacted] = JSON.parse(convertLoad(info));
+    return expand(compacted);
+}
+/**
+ * запись данных юнита в локальное хранилище. компактифицирует и сжимает зипом
+ * @param subid
+ * @param data
+ */
+function storeData(subid, data) {
+    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
+    // сожмем в компактный формат и сверху зипом
+    let compactedData = compact(data);
+    let forSave = [dataVersion, compactedData];
+    localStorage[storeKey] = convertStore(JSON.stringify(forSave));
+}
+/**
+ * Обработка конечной строки для сохранения. сжатие и прочее
+ * @param str
+ */
+function convertStore(str) {
+    return LZString.compress(str);
+}
+/**
+ * Обработка строки сразу после чтения. Расшифровка и так далее
+ * @param str
+ */
+function convertLoad(str) {
+    return LZString.decompress(str);
+}
+// собирает, число посетителей, сервис, известность, бюджет, население.
+function getUnitInfo_async(subid) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // собираем странички
+            let urlMain = `/${Realm}/main/unit/view/${subid}`;
+            let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
+            let [htmlMain, htmlAdv] = yield Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
+            //let htmlAdv = await tryGet_async(urlAdv);
+            // парсим данные
+            let adv = parseAds(htmlAdv, urlAdv);
+            let main = parseUnitMain(htmlMain, urlMain);
+            let res = {
+                date: new Date(),
+                income: -1,
+                visitors: main.visitors,
+                service: main.service,
+                celebrity: adv.celebrity,
+                budget: adv.budget,
+                population: adv.pop
+            };
+            return res;
+        }
+        catch (err) {
+            log("ошибка получения данных по юниту " + subid, err);
+            throw err;
+        }
+    });
+}
+// получает список subid для всех наших магазинов и заправок
+function getShopsFuels_async() {
+    return __awaiter(this, void 0, void 0, function* () {
+        // ставим фильтрацию на магазины, сбрасываем пагинацию.
+        // парсим юниты, 
+        // восстанавливаем пагинацию и фильтрацию
+        try {
+            // ставим фильтр в магазины и сбросим пагинацию
+            yield tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
+            yield tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
+            let htmlShops = yield tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
+            // загрузим заправки
+            yield tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
+            let htmlFuels = yield tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
+            // вернем пагинацию, и вернем назад установки фильтрации
+            yield tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
+            yield tryGet_async($(".u-s").attr("href") || `/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
+            // обработаем страничку и вернем результат
+            let arr = [];
+            let shops = parseUnitList(htmlShops, document.location.pathname);
+            for (let key in shops) {
+                if (shops[key].type !== UnitTypes.shop)
+                    throw new Error("мы должны получить только магазины, а получили " + shops[key].type);
+                arr.push(shops[key].subid);
+            }
+            let fuels = parseUnitList(htmlFuels, document.location.pathname);
+            for (let key in fuels) {
+                if (fuels[key].type !== UnitTypes.fuel)
+                    throw new Error("мы должны получить только заправки, а получили " + fuels[key].type);
+                arr.push(fuels[key].subid);
+            }
+            return arr;
+        }
+        catch (err) {
+            log("ошибка запроса юнитов.", err);
+            throw err;
+        }
+    });
+}
+// забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
+function getProfits_async() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
+            let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
+            // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
+            yield tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
+            let htmlShops = yield tryGet_async(urlShops);
+            let htmlFuels = yield tryGet_async(urlFuels);
+            yield tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/400`);
+            // обработаем полученную страничку
+            let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
+            let profitsFuels = parseFinanceRepByUnits(htmlFuels, urlFuels);
+            return mergeDictN(profitsShops, profitsFuels);
+        }
+        catch (err) {
+            log("ошибка обработки отчета по подразделениям", err);
+            throw err;
+        }
+    });
+}
+// шляпа что рисуется сверху и показывает результаты
+function buildTable() {
+    return `
+        <div class='logger' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>Process Log</div>
+            <table id='lgTable' class='logger' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
+                <tr>
+                    <td>Units: </td>
+                    <td id='lgDone'>0</td>
+                    <td>of</td>
+                    <td id='lgTotal'>0</td>
+                    <td id='lgAllDone' style='display: none; color: lightgoldenrodyellow'>Done!</td>
+                    <td id='lgCurrent' style='color: lightgoldenrodyellow'></td>
+                </tr>
+                <tr>
+                    <td id='xDone' colspan=6 style='display: none; color: lightgoldenrodyellow'>All Done!</td>
+                    <td id='xFail' colspan=6 style='display: none; color: lightgoldenrodyellow'>Failed!</td>
+                </tr>
+            </table>
+            <div id='lgProblem' class='logger' style='color:red;'></div>
+        </div>`;
+}
+function notifyTotal(shopCount) {
+    $("#lgTotal").text(shopCount);
+}
+function notifyCurrent(subid) {
+    $("#lgCurrent").text(subid);
+}
+function notifyDone(subid, count) {
+    $("#lgDone").text(count);
+}
 $(document).ready(() => Start());
-//# sourceMappingURL=visitors_history.user.js.map

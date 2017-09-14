@@ -1,8 +1,4 @@
 ﻿
-/// <reference path= "../../_jsHelper/jsHelper/jsHelper.ts" />
-/// <reference path= "../../XioPorted/PageParsers/2_IDictionary.ts" />
-/// <reference path= "../../XioPorted/PageParsers/7_PageParserFunctions.ts" />
-/// <reference path= "../../XioPorted/PageParsers/1_Exceptions.ts" />
 
 $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
@@ -322,276 +318,26 @@ function unitList() {
     // экспортировать данные
     let $exportBtn = $("<input type='button' id='vh_export' value='Export'>");
     $exportBtn.on("click", () => {
-        Export($header, (key) => {
-            // если в ключе нет числа, не брать его
-            let m = extractIntPositive(key);
-            if (m == null)
-                return false;
-
-            // если ключик не совпадает со старым ключем для посетителей
-            let subid = m[0];
-            if (key !== buildStoreKey(Realm, StoreKeyCode, subid))
-                return false;
-
-            return true;
-        });
+        let keys = getStoredUnitsKeys(Realm, StoreKeyCode);
+        ExportA($vh, keys, convertLoad, "\n");
     });
     $vh.append($exportBtn);
 
     // импортировать данные
     let $importBtn = $("<input type='button' id='vh_import' value='Import'>");
     $importBtn.on("click", () => {
-        Import($header);
+        ImportA($vh, convertStore, "\n");
     });
     $vh.append($importBtn);
 
     // экспорт в CSV формат
     let $exportCsvBtn = $("<input type='button' id='vh_exportCsv' value='Export Csv'>");
     $exportCsvBtn.on("click", () => {
-        exportCsv($header);
+        exportCsv($vh);
     });
     $vh.append($exportCsvBtn);
 
     $header.append($vh);
-
-    // собираем всю информацию по магазинам включая рекламу и доходы
-    async function parseVisitors_async() {
-        try {
-            // парсим список магов со страницы юнитов
-            let p1 = await getShopsFuels_async();
-            let subids = p1 as number[];
-            log("shops", subids);
-
-            // парсим профиты магов с отчета по подразделениям
-            let p2 = await getProfits_async();
-            let finance = p2 as IDictionaryN<IUnitFinance>;
-            log("finance", finance);
-
-            // число элементов должно совпадать иначе какой то косяк
-            if (subids.length !== Object.keys(finance).length)
-                throw new Error("Число юнитов с главной, не совпало с числом юнитов взятых с отчета по подразделениям. косяк.");
-
-            notifyTotal(subids.length);
-
-            // теперь для каждого мага надо собрать информацию по посетосам и бюджету
-            // для полученного списка парсим инфу по посетителям, известности, рекламному бюджету
-            // !!!!!! использовать forEach оказалось опасно. Так как там метод, он быстро выполнялся БЕЗ ожидания
-            // завершения промисов и я получал данные когда то в будущем. Через циклы работает
-            let parsedInfo: IDictionaryN<IVisitorsInfoEx> = {};
-            let done = 0;
-            for (let subid of subids) {
-                // собираем данные по юниту и дополняем недостающим
-                notifyCurrent(subid);
-                let info = await getUnitInfo_async(subid);
-                info.date = currentGameDate;
-                info.income = finance[subid].income;    // если вдруг данных не будет все равно вывалит ошибку
-
-                if (parsedInfo[subid])
-                    throw new Error("юнита еще не должно быть в списке спарсеных " + subid);
-
-                parsedInfo[subid] = info;
-                done++;
-                notifyDone(subid, done);
-            }
-            
-            return parsedInfo;
-        }
-        catch (err) {
-            log("Ошибка сбора посетителей.", err);
-            throw err;
-        }
-    }
-
-    function saveInfo(parsedInfo: IDictionaryN<IVisitorsInfoEx>) {
-        // дата, старее которой все удалять нахуй
-        let minDate = new Date(currentGameDate.getTime() - 1000 * 60 * 60 * 24 * 7 * KeepWeeks);
-        log(`minDate == ${dateToShort(minDate)}`);
-
-        for (let key in parsedInfo) {
-            let subid = parseInt(key);
-            let info = parsedInfo[subid];
-
-            let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
-            let dateKey = dateToShort(info.date);
-
-            // компактифицируем данные по юниту
-            let dic: IDictionary<IVisitorsInfoEx> = {};
-            dic[dateKey] = info;
-            let compactInfo = compact(dic)[dateKey];
-
-            
-            // если записи о юните еще нет, сформируем иначе считаем данные
-            let storedInfo: [number, IDictionary<ICompactInfo>] = [dataVersion, {}];
-            if (localStorage[storeKey] != null)
-                storedInfo = JSON.parse(localStorage[storeKey]);
-
-            // обновим данные и сохраним назад
-            if (storedInfo[1][dateKey])
-                log(`${subid}:${dateKey} существует. заменяем на`, compactInfo);
-
-            storedInfo[1][dateKey] = compactInfo;
-
-            // подчистим старые данные чтобы лог не захламлять
-            let dates = Object.keys(storedInfo[1]).map(v => dateFromShort(v));
-            dates.sort((a, b) => {
-                if (a > b)
-                    return 1;
-
-                if (a < b)
-                    return -1;
-
-                return 0;
-            });
-            for (let d of dates) {
-                if (d > minDate)
-                    break;
-
-                delete storedInfo[1][dateToShort(d)];
-                log(`удалена запись для ${subid} с датой ${d}`);
-            }
-
-
-            localStorage[storeKey] = JSON.stringify(storedInfo);
-        }
-    }
-
-
-    // собирает, число посетителей, сервис, известность, бюджет, население.
-    async function getUnitInfo_async(subid: number): Promise<IVisitorsInfoEx> {
-        try {
-            // собираем странички
-            let urlMain = `/${Realm}/main/unit/view/${subid}`;
-            let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
-            let [htmlMain, htmlAdv] = await Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
-            //let htmlAdv = await tryGet_async(urlAdv);
-
-            // парсим данные
-            let adv = parseAds(htmlAdv, urlAdv);
-            let main = parseUnitMain(htmlMain, urlMain);
-            let res: IVisitorsInfoEx = {
-                date: new Date(),
-                income: -1,
-
-                visitors: main.visitors,
-                service: main.service,
-
-                celebrity: adv.celebrity,
-                budget: adv.budget,
-                population: adv.pop
-            };
-            return res;
-        }
-        catch (err) {
-            log("ошибка получения данных по юниту " + subid, err);
-            throw err;
-        }
-    }
-
-    // получает список subid для всех наших магазинов и заправок
-    async function getShopsFuels_async(): Promise<number[]> {
-
-        // ставим фильтрацию на магазины, сбрасываем пагинацию.
-        // парсим юниты, 
-        // восстанавливаем пагинацию и фильтрацию
-        try {
-            // ставим фильтр в магазины и сбросим пагинацию
-            await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
-            await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
-            let htmlShops = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
-
-            // загрузим заправки
-            await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
-            let htmlFuels = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
-
-            // вернем пагинацию, и вернем назад установки фильтрации
-            await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
-            await tryGet_async($(".u-s").attr("href") || `/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
-
-            // обработаем страничку и вернем результат
-            let arr: number[] = [];
-
-            let shops = parseUnitList(htmlShops, document.location.pathname);
-            for (let key in shops) {
-                if (shops[key].type !== UnitTypes.shop)
-                    throw new Error("мы должны получить только магазины, а получили " + shops[key].type);
-
-                arr.push(shops[key].subid);
-            }
-
-            let fuels = parseUnitList(htmlFuels, document.location.pathname);
-            for (let key in fuels) {
-                if (fuels[key].type !== UnitTypes.fuel)
-                    throw new Error("мы должны получить только заправки, а получили " + fuels[key].type);
-
-                arr.push(fuels[key].subid);
-            }
-
-            return arr;
-        }
-        catch (err)
-        {
-            log("ошибка запроса юнитов.", err);
-            throw err;
-        }
-    }
-
-    // забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
-    async function getProfits_async(): Promise<IDictionaryN<IUnitFinance>> {
-        try {
-            let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
-            let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
-
-            // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
-            await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
-            let htmlShops = await tryGet_async(urlShops);
-            let htmlFuels = await tryGet_async(urlFuels);
-            await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/400`);
-
-            // обработаем полученную страничку
-            let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
-            let profitsFuels = parseFinanceRepByUnits(htmlFuels, urlFuels);
-            return mergeDictN(profitsShops, profitsFuels);
-        }
-        catch (err) {
-            log("ошибка обработки отчета по подразделениям", err);
-            throw err;
-        }
-    }
-
-
-    // шляпа что рисуется сверху и показывает результаты
-    function buildTable() {
-        return `
-        <div class='logger' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>Process Log</div>
-            <table id='lgTable' class='logger' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
-                <tr>
-                    <td>Units: </td>
-                    <td id='lgDone'>0</td>
-                    <td>of</td>
-                    <td id='lgTotal'>0</td>
-                    <td id='lgAllDone' style='display: none; color: lightgoldenrodyellow'>Done!</td>
-                    <td id='lgCurrent' style='color: lightgoldenrodyellow'></td>
-                </tr>
-                <tr>
-                    <td id='xDone' colspan=6 style='display: none; color: lightgoldenrodyellow'>All Done!</td>
-                    <td id='xFail' colspan=6 style='display: none; color: lightgoldenrodyellow'>Failed!</td>
-                </tr>
-            </table>
-            <div id='lgProblem' class='logger' style='color:red;'></div>
-        </div>`;
-    }
-
-    function notifyTotal(shopCount: number) {
-        $("#lgTotal").text(shopCount);
-    }
-
-    function notifyCurrent(subid: number) {
-        $("#lgCurrent").text(subid);
-    }
-
-    function notifyDone(subid: number, count: number) {
-        $("#lgDone").text(count);
-    }
 }
 
 function unitMain() {
@@ -613,7 +359,7 @@ function unitMain() {
                         </td>
                      </tr>`);
 
-            let info = loadInfo(getSubid());
+            let info = loadData(getSubid());
             showHistory(info, $("#chartContainer"));
         }
         else {
@@ -781,15 +527,6 @@ function showHistory(info: IDictionary<IVisitorsInfoEx>, container: JQuery) {
     //log("showed");
 }
 
-// загрузка данных по 1 юниту и конвертация в нормальный формат
-function loadInfo(subid: number): IDictionary<IVisitorsInfoEx> {
-
-    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
-    let compacted = JSON.parse(localStorage[storeKey]) as [number, IDictionary<ICompactInfo>];
-    let expanded = expand(compacted[1]);
-    return expanded;
-}
-
 function getSubid() {
     let numbers = extractIntPositive(document.location.pathname);
     if (numbers == null || numbers.length < 1)
@@ -831,7 +568,7 @@ function exportCsv($place: JQuery) {
 
     // грузим данные по юниту, подгружаем размер города его имя
     for (let subid of subids) {
-        let infoDict = loadInfo(subid);
+        let infoDict = loadData(subid);
         for (let dateKey in infoDict) {
             let item = infoDict[dateKey];
             let str = formatStr("{0};{1};{2};{3};{4};{5};{6};{7}", subid, dateKey, item.visitors, item.service, item.income, item.celebrity, item.budget, item.population);
@@ -842,6 +579,280 @@ function exportCsv($place: JQuery) {
     $txt.text(exportStr);
     $place.append($txt);
     return true;
+}
+
+// собираем всю информацию по магазинам включая рекламу и доходы
+async function parseVisitors_async() {
+    try {
+        // парсим список магов со страницы юнитов
+        let p1 = await getShopsFuels_async();
+        let subids = p1 as number[];
+        log("shops", subids);
+
+        // парсим профиты магов с отчета по подразделениям
+        let p2 = await getProfits_async();
+        let finance = p2 as IDictionaryN<IUnitFinance>;
+        log("finance", finance);
+
+        // число элементов должно совпадать иначе какой то косяк
+        if (subids.length !== Object.keys(finance).length)
+            throw new Error("Число юнитов с главной, не совпало с числом юнитов взятых с отчета по подразделениям. косяк.");
+
+        notifyTotal(subids.length);
+
+        // теперь для каждого мага надо собрать информацию по посетосам и бюджету
+        // для полученного списка парсим инфу по посетителям, известности, рекламному бюджету
+        // !!!!!! использовать forEach оказалось опасно. Так как там метод, он быстро выполнялся БЕЗ ожидания
+        // завершения промисов и я получал данные когда то в будущем. Через циклы работает
+        let parsedInfo: IDictionaryN<IVisitorsInfoEx> = {};
+        let done = 0;
+        for (let subid of subids) {
+            // собираем данные по юниту и дополняем недостающим
+            notifyCurrent(subid);
+            let info = await getUnitInfo_async(subid);
+            info.date = currentGameDate;
+            info.income = finance[subid].income;    // если вдруг данных не будет все равно вывалит ошибку
+
+            if (parsedInfo[subid])
+                throw new Error("юнита еще не должно быть в списке спарсеных " + subid);
+
+            parsedInfo[subid] = info;
+            done++;
+            notifyDone(subid, done);
+        }
+
+        return parsedInfo;
+    }
+    catch (err) {
+        log("Ошибка сбора посетителей.", err);
+        throw err;
+    }
+}
+
+
+/**
+ * Записывает собранные за сегодня данные в хранилище
+ * @param parsedInfo
+ */
+function saveInfo(parsedInfo: IDictionaryN<IVisitorsInfoEx>) {
+    // дата, старее которой все удалять нахуй
+    let minDate = new Date(currentGameDate.getTime() - 1000 * 60 * 60 * 24 * 7 * KeepWeeks);
+    log(`minDate == ${dateToShort(minDate)}`);
+
+    for (let key in parsedInfo) {
+        let subid = parseInt(key);
+        let info = parsedInfo[subid];
+        let dateKey = dateToShort(info.date);
+
+        let storedInfo = loadData(subid);
+
+        // обновим данные и сохраним назад
+        if (storedInfo[dateKey] != null)
+            log(`${subid}:${dateKey} существует. заменяем на`, info);
+
+        storedInfo[dateKey] = info;
+
+        // подчистим старые данные чтобы лог не захламлять
+        // сортировку оставим чтобы удаление в лог писало даты последовательно а не вразноброс
+        let dates = Object.keys(storedInfo).map(dt => dateFromShort(dt));
+        dates.sort((a, b) => {
+            if (a > b)
+                return 1;
+
+            if (a < b)
+                return -1;
+
+            return 0;
+        });
+        for (let d of dates) {
+            if (d > minDate)
+                break;
+
+            delete storedInfo[dateToShort(d)];
+            log(`удалена запись для ${subid} с датой ${d}`);
+        }
+
+
+        storeData(subid, storedInfo);
+    }
+}
+/**
+ * загрузка данных для заданного юнита и конвертация в полный формат
+   если данных нет то вернет {}
+ * @param subid
+ */
+function loadData(subid: number): IDictionary<IVisitorsInfoEx> {
+    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
+    let info = localStorage[storeKey];
+    if (info == null)
+        return {};
+
+    let [ver, compacted] = JSON.parse(convertLoad(info)) as [number, IDictionary<ICompactInfo>];
+    return expand(compacted);
+}
+/**
+ * запись данных юнита в локальное хранилище. компактифицирует и сжимает зипом
+ * @param subid
+ * @param data
+ */
+function storeData(subid: number, data: IDictionary<IVisitorsInfoEx>) {
+    let storeKey = buildStoreKey(Realm, StoreKeyCode, subid);
+
+    // сожмем в компактный формат и сверху зипом
+    let compactedData = compact(data);
+    let forSave = [dataVersion, compactedData];
+    localStorage[storeKey] = convertStore(JSON.stringify(forSave));
+}
+/**
+ * Обработка конечной строки для сохранения. сжатие и прочее
+ * @param str
+ */
+function convertStore(str: string): string {
+    return LZString.compress(str);
+}
+/**
+ * Обработка строки сразу после чтения. Расшифровка и так далее
+ * @param str
+ */
+function convertLoad(str: string): string {
+    return LZString.decompress(str);
+}
+
+
+// собирает, число посетителей, сервис, известность, бюджет, население.
+async function getUnitInfo_async(subid: number): Promise<IVisitorsInfoEx> {
+    try {
+        // собираем странички
+        let urlMain = `/${Realm}/main/unit/view/${subid}`;
+        let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
+        let [htmlMain, htmlAdv] = await Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
+        //let htmlAdv = await tryGet_async(urlAdv);
+
+        // парсим данные
+        let adv = parseAds(htmlAdv, urlAdv);
+        let main = parseUnitMain(htmlMain, urlMain);
+        let res: IVisitorsInfoEx = {
+            date: new Date(),
+            income: -1,
+
+            visitors: main.visitors,
+            service: main.service,
+
+            celebrity: adv.celebrity,
+            budget: adv.budget,
+            population: adv.pop
+        };
+        return res;
+    }
+    catch (err) {
+        log("ошибка получения данных по юниту " + subid, err);
+        throw err;
+    }
+}
+
+// получает список subid для всех наших магазинов и заправок
+async function getShopsFuels_async(): Promise<number[]> {
+
+    // ставим фильтрацию на магазины, сбрасываем пагинацию.
+    // парсим юниты, 
+    // восстанавливаем пагинацию и фильтрацию
+    try {
+        // ставим фильтр в магазины и сбросим пагинацию
+        await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
+        await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
+        let htmlShops = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
+
+        // загрузим заправки
+        await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
+        let htmlFuels = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
+
+        // вернем пагинацию, и вернем назад установки фильтрации
+        await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
+        await tryGet_async($(".u-s").attr("href") || `/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=0/size=0/type=${$(".unittype").val()}`);
+
+        // обработаем страничку и вернем результат
+        let arr: number[] = [];
+
+        let shops = parseUnitList(htmlShops, document.location.pathname);
+        for (let key in shops) {
+            if (shops[key].type !== UnitTypes.shop)
+                throw new Error("мы должны получить только магазины, а получили " + shops[key].type);
+
+            arr.push(shops[key].subid);
+        }
+
+        let fuels = parseUnitList(htmlFuels, document.location.pathname);
+        for (let key in fuels) {
+            if (fuels[key].type !== UnitTypes.fuel)
+                throw new Error("мы должны получить только заправки, а получили " + fuels[key].type);
+
+            arr.push(fuels[key].subid);
+        }
+
+        return arr;
+    }
+    catch (err) {
+        log("ошибка запроса юнитов.", err);
+        throw err;
+    }
+}
+
+// забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
+async function getProfits_async(): Promise<IDictionaryN<IUnitFinance>> {
+    try {
+        let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
+        let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
+
+        // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
+        await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
+        let htmlShops = await tryGet_async(urlShops);
+        let htmlFuels = await tryGet_async(urlFuels);
+        await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/400`);
+
+        // обработаем полученную страничку
+        let profitsShops = parseFinanceRepByUnits(htmlShops, urlShops);
+        let profitsFuels = parseFinanceRepByUnits(htmlFuels, urlFuels);
+        return mergeDictN(profitsShops, profitsFuels);
+    }
+    catch (err) {
+        log("ошибка обработки отчета по подразделениям", err);
+        throw err;
+    }
+}
+
+
+// шляпа что рисуется сверху и показывает результаты
+function buildTable() {
+    return `
+        <div class='logger' style='font-size: 24px; color:gold; margin-bottom: 5px; margin-top: 15px;'>Process Log</div>
+            <table id='lgTable' class='logger' style='font-size: 18px; color:gold; border-spacing: 10px 0; margin-bottom: 18px'>
+                <tr>
+                    <td>Units: </td>
+                    <td id='lgDone'>0</td>
+                    <td>of</td>
+                    <td id='lgTotal'>0</td>
+                    <td id='lgAllDone' style='display: none; color: lightgoldenrodyellow'>Done!</td>
+                    <td id='lgCurrent' style='color: lightgoldenrodyellow'></td>
+                </tr>
+                <tr>
+                    <td id='xDone' colspan=6 style='display: none; color: lightgoldenrodyellow'>All Done!</td>
+                    <td id='xFail' colspan=6 style='display: none; color: lightgoldenrodyellow'>Failed!</td>
+                </tr>
+            </table>
+            <div id='lgProblem' class='logger' style='color:red;'></div>
+        </div>`;
+}
+
+function notifyTotal(shopCount: number) {
+    $("#lgTotal").text(shopCount);
+}
+
+function notifyCurrent(subid: number) {
+    $("#lgCurrent").text(subid);
+}
+
+function notifyDone(subid: number, count: number) {
+    $("#lgDone").text(count);
 }
 
 $(document).ready(() => Start());
