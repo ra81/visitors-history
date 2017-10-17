@@ -9,7 +9,7 @@
 // @require        https://www.amcharts.com/lib/3/amcharts.js
 // @require        https://www.amcharts.com/lib/3/serial.js
 // @require        https://raw.githubusercontent.com/pieroxy/lz-string/master/libs/lz-string.min.js
-// @version        2.0
+// @version        2.1
 // ==/UserScript==
 
 /// <reference path= "../../_jsHelper/jsHelper/jsHelper.ts" />

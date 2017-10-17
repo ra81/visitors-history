@@ -341,7 +341,9 @@ function unitList() {
 }
 
 function unitMain() {
-    if (!isShop(document) && !isFuel(document)) {
+    let type = parseUnitType($(document));
+
+    if (type != UnitTypes.shop && type != UnitTypes.fuel) {
         log("не магазин и не заправка.");
         return;
     }
@@ -724,13 +726,13 @@ async function getUnitInfo_async(subid: number): Promise<IVisitorsInfoEx> {
     try {
         // собираем странички
         let urlMain = `/${Realm}/main/unit/view/${subid}`;
-        let urlAdv = `/${Realm}/main/unit/view/${subid}/virtasement`;
+        let urlAdv = `/${Realm}/window/unit/view/${subid}/virtasement`;
         let [htmlMain, htmlAdv] = await Promise.all([tryGet_async(urlMain), tryGet_async(urlAdv)]);
         //let htmlAdv = await tryGet_async(urlAdv);
 
         // парсим данные
-        let adv = parseAds(htmlAdv, urlAdv);
-        let main = parseUnitMain(htmlMain, urlMain);
+        let adv = parseUnitAds(htmlAdv, urlAdv);
+        let main = parseUnitMainNew(htmlMain, urlMain) as any as IMainShop;
         let res: IVisitorsInfoEx = {
             date: new Date(),
             income: -1,
@@ -760,11 +762,12 @@ async function getShopsFuels_async(): Promise<number[]> {
         // ставим фильтр в магазины и сбросим пагинацию
         await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=1885/type=0/size=0`);
         await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/20000`);
-        let htmlShops = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
+        let url = `/${Realm}/window/company/view/${companyId}/unit_list`;
+        let htmlShops = await tryGet_async(url);
 
         // загрузим заправки
         await tryGet_async(`/${Realm}/main/common/util/setfiltering/dbunit/unitListWithProduction/class=422789/type=0/size=0`);
-        let htmlFuels = await tryGet_async(`/${Realm}/main/company/view/${companyId}/unit_list`);
+        let htmlFuels = await tryGet_async(url);
 
         // вернем пагинацию, и вернем назад установки фильтрации
         await tryGet_async(`/${Realm}/main/common/util/setpaging/dbunit/unitListWithProduction/400`);
@@ -773,7 +776,7 @@ async function getShopsFuels_async(): Promise<number[]> {
         // обработаем страничку и вернем результат
         let arr: number[] = [];
 
-        let shops = parseUnitList(htmlShops, document.location.pathname);
+        let shops = parseUnitList(htmlShops, url);
         for (let key in shops) {
             if (shops[key].type !== UnitTypes.shop)
                 throw new Error("мы должны получить только магазины, а получили " + shops[key].type);
@@ -781,7 +784,7 @@ async function getShopsFuels_async(): Promise<number[]> {
             arr.push(shops[key].subid);
         }
 
-        let fuels = parseUnitList(htmlFuels, document.location.pathname);
+        let fuels = parseUnitList(htmlFuels, url);
         for (let key in fuels) {
             if (fuels[key].type !== UnitTypes.fuel)
                 throw new Error("мы должны получить только заправки, а получили " + fuels[key].type);
@@ -800,8 +803,8 @@ async function getShopsFuels_async(): Promise<number[]> {
 // забирает данные со странички отчета по подразделениям. А именно выручку по всем нашим магам
 async function getProfits_async(): Promise<IDictionaryN<IUnitFinance>> {
     try {
-        let urlShops = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:1885/`;
-        let urlFuels = `/${Realm}/main/company/view/${companyId}/finance_report/by_units/class:422789/`;
+        let urlShops = `/${Realm}/window/company/view/${companyId}/finance_report/by_units/class:1885/`;
+        let urlFuels = `/${Realm}/window/company/view/${companyId}/finance_report/by_units/class:422789/`;
 
         // сбросим пагинацию и заберем только отчет для магазинов и заправок. после чего вернем пагинацию
         await tryGet_async(`/${Realm}/main/common/util/setpaging/reportcompany/units/20000`);
