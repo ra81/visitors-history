@@ -4,8 +4,8 @@ $ = jQuery = jQuery.noConflict(true);
 $xioDebug = true;
 let Realm = getRealmOrError();
 let StoreKeyCode = "vh";
-let companyId = getCompanyId();
-let currentGameDate = parseGameDate(document, document.location.pathname);
+let companyId = nullCheck(parseCompanyId(document));
+let currentGameDate = nullCheck(parseGameDate(document));
 let dataVersion = 2;    // версия сохраняемых данных. При изменении формата менять и версию
 let KeepWeeks = 60;       // сколько точек данных сохранять. 52 значит виртогод
 
